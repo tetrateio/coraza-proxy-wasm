@@ -64,6 +64,19 @@ func (ctx *corazaPlugin) OnPluginStart(pluginConfigurationSize int) types.OnPlug
 
 	root, _ := fs.Sub(crs, "rules")
 
+	root = &rulesFS{
+		root,
+		map[string]string{
+			"@recommended-conf":    "coraza.conf-recommended.conf",
+			"@demo-conf":           "coraza-demo.conf",
+			"@crs-setup-demo-conf": "crs-setup-demo.conf",
+			"@ftw-conf":            "ftw-config.conf",
+		},
+		map[string]string{
+			"@owasp_crs": "crs",
+		},
+	}
+
 	// First we initialize our waf and our seclang parser
 	conf := coraza.NewWAFConfig().
 		WithErrorLogger(logError).
@@ -107,6 +120,7 @@ type httpContext struct {
 	httpProtocol          string
 	processedRequestBody  bool
 	processedResponseBody bool
+	requestBodySize       int
 	responseBodySize      int
 	metrics               *wafMetrics
 }
@@ -174,8 +188,21 @@ func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.
 	defer logTime("OnHttpRequestBody", currentTime())
 	tx := ctx.tx
 
-	if bodySize > 0 {
-		body, err := proxywasm.GetHttpRequestBody(0, bodySize)
+	// Do not perform any action related to request body if SecRequestBodyAccess is set to false
+	if !tx.RequestBodyAccessible() {
+		proxywasm.LogDebug("skipping request body inspection, SecRequestBodyAccess is off.")
+		return types.ActionContinue
+	}
+
+	ctx.requestBodySize += bodySize
+	// Wait until we see the entire body. It has to be buffered in order to check that it is fully legit
+	// before sending it upstream
+	if !endOfStream {
+		return types.ActionPause
+	}
+
+	if ctx.requestBodySize > 0 {
+		body, err := proxywasm.GetHttpRequestBody(0, ctx.requestBodySize)
 		if err != nil {
 			proxywasm.LogCriticalf("failed to get request body: %v", err)
 			return types.ActionContinue
@@ -186,10 +213,6 @@ func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.
 			proxywasm.LogCriticalf("failed to read request body: %v", err)
 			return types.ActionContinue
 		}
-	}
-
-	if !endOfStream {
-		return types.ActionContinue
 	}
 
 	ctx.processedRequestBody = true
@@ -255,24 +278,34 @@ func (ctx *httpContext) OnHttpResponseBody(bodySize int, endOfStream bool) types
 	defer logTime("OnHttpResponseBody", currentTime())
 	tx := ctx.tx
 
-	if bodySize > 0 {
-		body, err := proxywasm.GetHttpResponseBody(ctx.responseBodySize, bodySize)
+	// Do not perform any action related to response body if SecResponseBodyAccess is set to false
+	if !tx.ResponseBodyAccessible() {
+		proxywasm.LogDebug("skipping response body inspection, SecResponseBodyAccess is off.")
+		return types.ActionContinue
+	}
+
+	ctx.responseBodySize += bodySize
+	// Wait until we see the entire body. It has to be buffered in order to check that it is fully legit
+	// before sending it downstream
+	if !endOfStream {
+		// TODO(M4tteoP): Update response body interruption logic after https://github.com/corazawaf/coraza-proxy-wasm/issues/26
+		return types.ActionPause
+	}
+
+	if ctx.responseBodySize > 0 {
+		body, err := proxywasm.GetHttpResponseBody(0, ctx.responseBodySize)
+		if len(body) != ctx.responseBodySize {
+			proxywasm.LogDebugf("warning: retrieved response body size different from the sum of all bodySizes. %d != %d", len(body), ctx.responseBodySize)
+		}
 		if err != nil {
 			proxywasm.LogCriticalf("failed to get response body: %v", err)
 			return types.ActionContinue
 		}
-		ctx.responseBodySize += bodySize
 		_, err = tx.ResponseBodyWriter().Write(body)
 		if err != nil {
-			proxywasm.LogCriticalf("failed to read response body: %v", err)
+			proxywasm.LogCriticalf("failed to write response body: %v", err)
 			return types.ActionContinue
 		}
-	}
-
-	// Response body has to be buffered in order to check that it is fully legit
-	if !endOfStream {
-		// TODO(M4tteoP): Update response body interruption logic after https://github.com/corazawaf/coraza-proxy-wasm/issues/26
-		return types.ActionPause
 	}
 
 	// We have already sent response headers, an unauthorized response can not be sent anymore,
