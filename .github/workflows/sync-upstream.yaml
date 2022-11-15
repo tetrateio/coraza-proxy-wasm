@@ -1,0 +1,24 @@
+name: Sync Upstream
+
+# This runs every day on 00:00 UTC
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  # Allows manual workflow run (must in default branch to work)
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v2
+        with:
+          ref: main
+      - name: Sync upstream changes
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+        with:
+          target_sync_branch: main
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+          upstream_sync_branch: main
+          upstream_sync_repo: corazawaf/coraza-proxy-wasm
