@@ -3,13 +3,14 @@ module github.com/corazawaf/coraza-proxy-wasm
 go 1.19
 
 require (
-	github.com/corazawaf/coraza/v3 v3.0.0-20230130131057-1baba981375c
+	github.com/corazawaf/coraza/v3 v3.0.0-20230203020113-719e7edfc0ac
 	github.com/stretchr/testify v1.8.0
 	github.com/tetratelabs/proxy-wasm-go-sdk v0.21.0
 	github.com/tidwall/gjson v1.14.4
 	github.com/wasilibs/go-aho-corasick v0.2.0
 	github.com/wasilibs/go-libinjection v0.1.0
 	github.com/wasilibs/go-re2 v0.1.0
+	github.com/wasilibs/nottinygc v0.0.0-20230202022930-bb230a97db8e
 )
 
 require (
