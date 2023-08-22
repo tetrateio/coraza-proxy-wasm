@@ -21,4 +21,5 @@ jobs:
         with:
           target_sync_branch: main
           upstream_sync_branch: main
+          upstream_pull_args: '--allow-unrelated-histories'
           upstream_sync_repo: corazawaf/coraza-proxy-wasm
