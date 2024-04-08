@@ -19,8 +19,8 @@ env:
     envoyproxy/envoy:v1.29-latest
     envoyproxy/envoy:v1.28-latest
     envoyproxy/envoy-dev:latest
-    istio/proxyv2:1.20.1
-    istio/proxyv2:1.19.5
+    istio/proxyv2:1.21.0
+    istio/proxyv2:1.20.4
 
 jobs:
   build:
@@ -89,9 +89,12 @@ jobs:
           name: ftw-envoy-logs
           path: build/ftw-envoy.log
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         if: ${{ matrix.multiphase_eval=='true' }}
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Docker meta
         if: ${{ matrix.multiphase_eval=='true' }}
@@ -131,11 +134,12 @@ jobs:
 
       - name: Build and push busybox based image
         if: ${{ matrix.multiphase_eval=='true' }}
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v5
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta-busybox.outputs.tags }}
+          platforms: linux/amd64,linux/arm64
           labels: ${{ steps.meta-busybox.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -144,7 +148,7 @@ jobs:
 
       - name: Build and push
         if: ${{ matrix.multiphase_eval=='true' }}
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v5
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
