@@ -13,14 +13,14 @@ on:
 
 env:
   GO_VERSION: '1.20'
-  TINYGO_VERSION: 0.30.0
+  TINYGO_VERSION: 0.31.2
   # Run e2e tests against latest two releases and latest dev
   ENVOY_IMAGES: >
+    envoyproxy/envoy:v1.30-latest
     envoyproxy/envoy:v1.29-latest
-    envoyproxy/envoy:v1.28-latest
     envoyproxy/envoy-dev:latest
-    istio/proxyv2:1.21.0
-    istio/proxyv2:1.20.4
+    istio/proxyv2:1.22.1
+    istio/proxyv2:1.21.3
 
 jobs:
   build:
@@ -30,6 +30,7 @@ jobs:
       contents: write
       packages: write
     strategy:
+      fail-fast: false # ftw runs are flaky, let's keep the two jobs running reducing re-runs
       matrix:
         multiphase_eval: ["true","false"]
     env:

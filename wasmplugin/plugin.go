@@ -281,23 +281,6 @@ func (ctx *httpContext) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 
 	tx.ProcessConnection(srcIP, srcPort, dstIP, dstPort)
 
-	// Note the pseudo-header :path includes the query.
-	// See https://httpwg.org/specs/rfc9113.html#rfc.section.8.3.1
-	uri, err := proxywasm.GetHttpRequestHeader(":path")
-	if err != nil {
-		ctx.logger.Error().
-			Err(err).
-			Msg("Failed to get :path")
-		propPathRaw, propPathErr := proxywasm.GetProperty([]string{"request", "path"})
-		if propPathErr != nil {
-			ctx.logger.Error().
-				Err(propPathErr).
-				Msg("Failed to get property of path of the request")
-			return types.ActionContinue
-		}
-		uri = string(propPathRaw)
-	}
-
 	method, err := proxywasm.GetHttpRequestHeader(":method")
 	if err != nil {
 		ctx.logger.Error().
@@ -311,6 +294,31 @@ func (ctx *httpContext) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 			return types.ActionContinue
 		}
 		method = string(propMethodRaw)
+	}
+
+	uri := ""
+	// TODO: use http.MethodConnect instead of "CONNECT" when we move to Go 1.21.
+	// Go 1.20 fails with 'tinygo/0.31.2/src/net/http/request.go:56:48: undefined: errors.ErrUnsupported'
+	if method == "CONNECT" { // CONNECT requests does not have a path, see https://httpwg.org/specs/rfc9110#CONNECT
+		// Populate uri with authority to build a proper request line
+		uri = authority
+	} else {
+		// Note the pseudo-header :path includes the query.
+		// See https://httpwg.org/specs/rfc9113.html#rfc.section.8.3.1
+		uri, err = proxywasm.GetHttpRequestHeader(":path")
+		if err != nil {
+			ctx.logger.Error().
+				Err(err).
+				Msg("Failed to get :path")
+			propPathRaw, propPathErr := proxywasm.GetProperty([]string{"request", "path"})
+			if propPathErr != nil {
+				ctx.logger.Error().
+					Err(propPathErr).
+					Msg("Failed to get property of path of the request")
+				return types.ActionContinue
+			}
+			uri = string(propPathRaw)
+		}
 	}
 
 	protocol, err := proxywasm.GetProperty([]string{"request", "protocol"})
@@ -552,8 +560,10 @@ func (ctx *httpContext) OnHttpResponseBody(bodySize int, endOfStream bool) types
 	}
 
 	// Do not perform any action related to response body data if SecResponseBodyAccess is set to false
-	if !tx.IsResponseBodyAccessible() {
-		ctx.logger.Debug().Msg("Skipping response body inspection, SecResponseBodyAccess is off.")
+	if !tx.IsResponseBodyAccessible() || !tx.IsResponseBodyProcessable() {
+		ctx.logger.Debug().Bool("SecResponseBodyAccess", tx.IsResponseBodyAccessible()).
+			Bool("IsResponseBodyProcessable", tx.IsResponseBodyProcessable()).
+			Msg("Skipping response body inspection")
 		// ProcessResponseBody is performed for phase 4 rules, checking already populated variables
 		if !ctx.processedResponseBody {
 			interruption, err := tx.ProcessResponseBody()
@@ -656,7 +666,10 @@ func (ctx *httpContext) OnHttpStreamDone() {
 		// Internally, if the engine is off, no log phase rules are evaluated
 		ctx.tx.ProcessLogging()
 
-		_ = ctx.tx.Close()
+		err := ctx.tx.Close()
+		if err != nil {
+			ctx.logger.Error().Err(err).Msg("Failed to close transaction")
+		}
 		ctx.logger.Info().Msg("Finished")
 		logMemStats()
 	}
